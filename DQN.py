@@ -3,21 +3,23 @@
 # https://github.com/mrkulk/deepQN_tensorflow
 
 import numpy as np
-import tensorflow as tf
+import tensorflow.compat.v1 as tf
+tf.disable_v2_behavior()
 
 class DQN:
     def __init__(self, params):
         self.params = params
         self.network_name = 'qnet'
         self.sess = tf.Session()
-        self.x = tf.placeholder('float', [None, params['width'],params['height'], 6],name=self.network_name + '_x')
+        # Updated to 24 channels for frame stacking (4 frames × 6 channels)
+        self.x = tf.placeholder('float', [None, params['width'],params['height'], 24],name=self.network_name + '_x')
         self.q_t = tf.placeholder('float', [None], name=self.network_name + '_q_t')
         self.actions = tf.placeholder("float", [None, 4], name=self.network_name + '_actions')
         self.rewards = tf.placeholder("float", [None], name=self.network_name + '_rewards')
         self.terminals = tf.placeholder("float", [None], name=self.network_name + '_terminals')
 
-        # Layer 1 (Convolutional)
-        layer_name = 'conv1' ; size = 3 ; channels = 6 ; filters = 16 ; stride = 1
+                # Layer 1 (Convolutional) - Updated input channels to 24
+        layer_name = 'conv1' ; size = 3 ; channels = 24 ; filters = 16 ; stride = 1
         self.w1 = tf.Variable(tf.random_normal([size,size,channels,filters], stddev=0.01),name=self.network_name + '_'+layer_name+'_weights')
         self.b1 = tf.Variable(tf.constant(0.1, shape=[filters]),name=self.network_name + '_'+layer_name+'_biases')
         self.c1 = tf.nn.conv2d(self.x, self.w1, strides=[1, stride, stride, 1], padding='SAME',name=self.network_name + '_'+layer_name+'_convs')
@@ -29,6 +31,11 @@ class DQN:
         self.b2 = tf.Variable(tf.constant(0.1, shape=[filters]),name=self.network_name + '_'+layer_name+'_biases')
         self.c2 = tf.nn.conv2d(self.o1, self.w2, strides=[1, stride, stride, 1], padding='SAME',name=self.network_name + '_'+layer_name+'_convs')
         self.o2 = tf.nn.relu(tf.add(self.c2,self.b2),name=self.network_name + '_'+layer_name+'_activations')
+        
+        o2_shape = self.o2.get_shape().as_list()        
+
+        # Layer 3 (Fully connected)
+        layer_name = 'fc3' ; hiddens = 256 ; dim = o2_shape[1]*o2_shape[2]*o2_shape[3]
         
         o2_shape = self.o2.get_shape().as_list()        
 

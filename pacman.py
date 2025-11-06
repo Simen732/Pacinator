@@ -368,6 +368,18 @@ class PacmanRules:
         vector = Actions.directionToVector(action, PacmanRules.PACMAN_SPEED)
         pacmanState.configuration = pacmanState.configuration.generateSuccessor(
             vector)
+        
+        # Wrap position around edges for teleportation
+        pos = pacmanState.configuration.getPosition()
+        x, y = pos
+        width = state.data.layout.width
+        height = state.data.layout.height
+        wrapped_x = x % width
+        wrapped_y = y % height
+        if wrapped_x != x or wrapped_y != y:
+            # Position wrapped, update configuration
+            from game import Configuration
+            pacmanState.configuration = Configuration((wrapped_x, wrapped_y), pacmanState.configuration.direction)
 
         # Eat
         next = pacmanState.configuration.getPosition()
@@ -435,6 +447,18 @@ class GhostRules:
         vector = Actions.directionToVector(action, speed)
         ghostState.configuration = ghostState.configuration.generateSuccessor(
             vector)
+        
+        # Wrap position around edges for teleportation (ghosts can use tunnels too)
+        pos = ghostState.configuration.getPosition()
+        x, y = pos
+        width = state.data.layout.width
+        height = state.data.layout.height
+        wrapped_x = x % width
+        wrapped_y = y % height
+        if wrapped_x != x or wrapped_y != y:
+            # Position wrapped, update configuration
+            from game import Configuration
+            ghostState.configuration = Configuration((wrapped_x, wrapped_y), ghostState.configuration.direction)
     applyAction = staticmethod(applyAction)
 
     def decrementTimer(ghostState):

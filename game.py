@@ -361,6 +361,9 @@ class Actions:
             dx, dy = vec
             next_y = y_int + dy
             next_x = x_int + dx
+            # Wrap around edges for teleportation
+            next_x = next_x % walls.width
+            next_y = next_y % walls.height
             if not walls[next_x][next_y]:
                 possible.append(dir)
 
@@ -375,11 +378,10 @@ class Actions:
         for dir, vec in Actions._directionsAsList:
             dx, dy = vec
             next_x = x_int + dx
-            if next_x < 0 or next_x == walls.width:
-                continue
             next_y = y_int + dy
-            if next_y < 0 or next_y == walls.height:
-                continue
+            # Wrap around edges for teleportation
+            next_x = next_x % walls.width
+            next_y = next_y % walls.height
             if not walls[next_x][next_y]:
                 neighbors.append((next_x, next_y))
         return neighbors
