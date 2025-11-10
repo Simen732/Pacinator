@@ -28,25 +28,25 @@ from DQN import *
 
 params = {
     # Model backups
-    'load_file': None,       # Fresh start - no checkpoint (change to load existing model)
-    'save_file': 'Pac-inator10-optimized',
+    'load_file': None,       # Start fresh with new reward function
+    'save_file': 'Pac-inator-WIN-FOCUSED',
     'save_interval': 50000,  # Save checkpoints every 50k steps
     
     # Logging
-    'log_interval': 100,     # Log every 100 episodes (reduces I/O overhead)
+    'log_interval': 50,     # Log every 50 episodes
     
-    # Training parameters - OPTIMIZED FOR BEST PERFORMANCE
+    # Training parameters - OPTIMIZED FOR LEARNING TO WIN
     'train_start': 500,      # Start training after 500 steps
-    'batch_size': 256,       # Larger batch for GPU efficiency (RTX 3060)
-    'mem_size': 25000,       # Smaller replay memory = faster sampling
+    'batch_size': 64,        # Good batch size for CPU
+    'mem_size': 20000,       # Larger memory for diverse experiences
     
-    'discount': 0.99,        # Higher discount = better long-term planning
-    'lr': .0001,             # Good learning rate for stable convergence
+    'discount': 0.99,        # High discount = plan for long-term (winning)
+    'lr': .0001,             # Good learning rate
     
-    # Epsilon decay - FASTER for short episodes
+    # Epsilon decay - Allow exploration to find winning strategies
     'eps': 1.0,              # Start with full exploration
-    'eps_final': 0.05,       # End with 5% exploration
-    'eps_step': 60000        # Faster decay - reach 0.05 at ~60k training steps
+    'eps_final': 0.1,        # End with 10% exploration (was 0.05)
+    'eps_step': 50000        # Slower decay - explore more to find wins
 }                     
 
 
@@ -60,15 +60,27 @@ class PacmanDQN(game.Agent):
         self.params = params
         self.params['width'] = args['width']
         self.params['height'] = args['height']
-        self.params['num_training'] = args['numTraining']
+        self.params['num_training'] = args.get('numTraining', 0)  # Default to 0 if not provided
 
-        # Start Tensorflow session with GPU optimization
-        gpu_options = tf.GPUOptions(
-            per_process_gpu_memory_fraction=0.5,  # Use 50% VRAM (was 10%)
-            allow_growth=True  # Dynamically allocate memory as needed
+        # Start Tensorflow session - CPU optimized
+        import os
+        # Set environment variables for maximum CPU usage
+        os.environ['OMP_NUM_THREADS'] = '16'
+        os.environ['TF_NUM_INTRAOP_THREADS'] = '16'
+        os.environ['TF_NUM_INTEROP_THREADS'] = '16'
+        
+        config = tf.ConfigProto(
+            intra_op_parallelism_threads=16,  # Max CPU cores
+            inter_op_parallelism_threads=16,  # Parallel operations
+            allow_soft_placement=True,
+            device_count={'CPU': 1}
         )
-        self.sess = tf.Session(config = tf.ConfigProto(gpu_options = gpu_options))
+        self.sess = tf.Session(config=config)
         self.qnet = DQN(self.params)
+        
+        # Print device info
+        print("Running on CPU (GPU not available)")
+        print("CPU parallelism MAXIMIZED (16 threads) for best performance")
 
         # time started
         self.general_record_time = time.strftime("%a_%d_%b_%Y_%H_%M_%S", time.localtime())
@@ -187,86 +199,26 @@ class PacmanDQN(game.Agent):
             food_count = state.getNumFood()
 
             # ============================================================
-            # DECAYING PELLET VALUE SYSTEM - Reward speed without time penalties
+            # SIMPLIFIED REWARD: FOCUS ON WINNING
+            # Use actual game score changes + massive win bonus + death penalty
             # ============================================================
             
-            # Track steps since last pellet
-            self.steps_since_pellet += 1
+            # Base reward is the actual game score change
+            self.last_reward = reward
             
-            if reward > 20:
-                # Ate a ghost - fixed high reward
-                self.last_reward = 100.
-                # Don't reset pellet timer for ghosts
-            elif reward > 0:
-                # Ate a pellet - value decays based on time since last pellet
-                # Base value starts at 50, decays by 0.4 per step
-                base_pellet_value = max(5, 50 - (self.steps_since_pellet * 0.4))
-                
-                # Late game: reduce decay pressure (higher minimum)
-                if food_count < 30:
-                    pellet_value = max(30, base_pellet_value)  # Minimum 30 in endgame
-                else:
-                    pellet_value = base_pellet_value  # Can go as low as 5
-                
-                self.last_reward = pellet_value
-                self.steps_since_pellet = 0  # Reset timer
-                
-                # Examples:
-                # Ate pellet after 1 step: 50 - 0.4 = 49.6 points
-                # Ate pellet after 20 steps: 50 - 8 = 42 points
-                # Ate pellet after 50 steps: 50 - 20 = 30 points
-                # Ate pellet after 100 steps: max(5, 50-40) = 10 points
-                # Late game (food < 30), 100 steps: max(30, 10) = 30 points
-                
-            elif reward < -10:
-                # DEATH - Big penalty + progress bonus
-                pellets_eaten = self.total_food - food_count
-                completion_rate = pellets_eaten / self.total_food
-                progress_bonus = completion_rate * 2000
-                
-                self.last_reward = -300 + progress_bonus
-                # 50% complete: -300 + 1000 = +700
-                # 75% complete: -300 + 1500 = +1200
-                # 90% complete: -300 + 1800 = +1500
-                
+            # Check if this is a death (large negative score)
+            if reward < -10:
+                # DEATH - Massive penalty to discourage dying
+                self.last_reward = -500  # Heavy death penalty
                 self.won = False
-            else:
-                # No reward/penalty for just moving (time passing)
-                # The penalty comes from pellet value decay
-                self.last_reward = 0.
             
-            # Ghost avoidance - simple danger zone
-            ghost_distance = self.getNearestGhostDistance(state)
-            if ghost_distance <= 2:  # Very close
-                self.last_reward -= 15
-            elif ghost_distance <= 4:  # Nearby
-                self.last_reward -= 5
-
-            # Food pursuit - simple distance reward
-            if hasattr(self, 'last_food_distance'):
-                current_distance = self.getNearestFoodDistance(state)
-                
-                if current_distance < self.last_food_distance:
-                    self.last_reward += 3  # Getting closer
-                elif current_distance > self.last_food_distance:
-                    self.last_reward -= 2  # Moving away
-                    
-                self.last_food_distance = current_distance
-            else:
-                self.last_food_distance = self.getNearestFoodDistance(state)
+            # Small penalty for each step to encourage efficiency
+            self.last_reward -= 1
             
-            # Anti-jittering - just penalize reversals
-            self.action_history.append(self.last_action)
-            opposite_actions = {0: 2, 2: 0, 1: 3, 3: 1}
-            
-            if len(self.action_history) >= 2:
-                if self.last_action == opposite_actions.get(self.action_history[-2]):
-                    self.last_reward -= 10  # Penalty for reversing
-
-            
+            # WIN BONUS - Applied when game ends with a win
             if(self.terminal and self.won):
-                # WIN BONUS - Clear winning signal
-                self.last_reward = 3000.  # Big but not excessive
+                # HUGE win bonus - make winning extremely desirable
+                self.last_reward += 5000
             self.ep_rew += self.last_reward
 
             # Store last experience into memory 
@@ -320,16 +272,27 @@ class PacmanDQN(game.Agent):
             log_file = open('./logs/'+str(self.general_record_time)+'-l-'+str(self.params['width'])+'-m-'+str(self.params['height'])+'-x-'+str(self.params['num_training'])+'.log','a')
             log_file.write("# %4d | steps_t: %5d | t: %4f | r: %12f | avg_r: %12f | e: %10f " %
                              (self.numeps, self.cnt, time.time()-self.s, self.ep_rew, avg_reward, self.params['eps']))
-            log_file.write("| Q: %10f | won: %r \n" % ((max(self.Q_global, default=float('nan')), self.won)))
+            log_file.write("| Q: %10f | won: %r | game_score: %d \n" % ((max(self.Q_global, default=float('nan')), self.won, self.current_score)))
             log_file.close()
             sys.stdout.write("# %4d | steps_t: %5d | t: %4f | r: %12f | avg_r: %12f | e: %10f " %
                              (self.numeps, self.cnt, time.time()-self.s, self.ep_rew, avg_reward, self.params['eps']))
-            sys.stdout.write("| Q: %10f | won: %r \n" % ((max(self.Q_global, default=float('nan')), self.won)))
+            sys.stdout.write("| Q: %10f | won: %r | game_score: %d \n" % ((max(self.Q_global, default=float('nan')), self.won, self.current_score)))
             sys.stdout.flush()
+        
+        # Save model when training is complete
+        if self.numeps == self.params['num_training'] and params['save_file']:
+            final_model_name = 'saves/model-' + params['save_file'] + '_FINAL_' + str(self.cnt) + '_' + str(self.numeps)
+            self.qnet.save_ckpt(final_model_name)
+            print('\n' + '='*60)
+            print('TRAINING COMPLETE!')
+            print('Final model saved: ' + final_model_name)
+            print('Total episodes: %d | Total steps: %d' % (self.numeps, self.cnt))
+            print('Final average reward: %.2f' % avg_reward)
+            print('='*60 + '\n')
 
     def train(self):
-        # Train every 8 steps for optimal learning (2x more updates than before)
-        # More frequent training = faster learning from experiences
+        # Train every 8 steps for CPU efficiency
+        # Less frequent = faster on CPU, still effective learning
         if (self.local_cnt > self.params['train_start']) and \
            (len(self.replay_mem) >= self.params['batch_size']) and \
            (self.local_cnt % 8 == 0):

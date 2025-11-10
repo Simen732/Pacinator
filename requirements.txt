@@ -1,0 +1,13 @@
+# Deep Q-Network Pacman Dependencies
+# This project uses TensorFlow for deep reinforcement learning
+
+# Core dependencies
+numpy>=1.19.0
+tensorflow>=2.0.0
+
+# Note: The README mentions older versions (python 3.5.1, tensorflow 0.8rc)
+# but the code has been updated to use tensorflow.compat.v1 API which works
+# with TensorFlow 2.x while maintaining backward compatibility
+
+# The project uses tkinter for graphics, which comes bundled with Python
+# No separate installation needed for tkinter on Windows
